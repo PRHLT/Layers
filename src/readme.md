@@ -43,11 +43,19 @@ DONE!
  
  clock_gettime and CLOCK_MONOTONIC
  
-* See this stackoverflow [post](http://stackoverflow.com/questions/5167269/clock-gettime-alternative-in-mac-os-x) or just comment that lines!
+* See this stackoverflow [post](http://stackoverflow.com/questions/5167269/clock-gettime-alternative-in-mac-os-x) or just comment the following line in the net.cpp:
+
+~~~c
+#define USETIME 
+~~~
+
+* To compile the netparser, use the MAC CC_LIB flag:
+
+  C_LIB = -ll
+
+* Also in the Makefile use the MAC CXXFLAGS:
  
-* Also in the Makefile use the MAC FLAGS:
- 
- CXXFLAGS = -I Eigen -O3 
+  CXXFLAGS = -I . -O3 
 
 ### Compiling on Windows:
 
@@ -57,7 +65,36 @@ DONE!
 
 ## Changelog
 
-### V0.1 - May 30 2016
+### V0.3 - June 2016
+
+* New functions for data:
+	* center
+	* div
+* New parameters for data:
+	* balance
+* Added a types.h to change from float to double precision
+* Other improvements
+
+* Note: **Parser must be compiled**
+
+### V0.2 - June 2016
+
+* New functions available:
+	* Network save and load are now available. 
+	* Write the output of test data is also available
+	* Write out the weights of a particular layer
+
+* Check the new functions in [Scripts-functions](https://github.com/RParedesPalacios/Layers/tree/master/Tutorial#scripts-functions) in the tutorial
+
+* Note: **Parser must be compiled**
+
+
+### V0.1.1 - June 2016
+
+* Important memory problem solved.
+
+
+### V0.1 - May 2016
  * Initial commit of source code
  
  * Things to do:

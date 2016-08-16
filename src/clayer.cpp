@@ -2,7 +2,7 @@
 #include <stdlib.h>     /* malloc, free, rand */
 #include <iostream>
 
-#include "Dense"
+#include "Eigen/Dense"
 #include "layer.h"
 #include "utils.h"
 
@@ -30,17 +30,18 @@ struct tdata{
   int stride;
   int inr;
   int inc;
+  int bn;
 
-  MatrixXf **N;
-  MatrixXf **K;
-  VectorXf bias;
-  MatrixXf **E;
+  LMatrix **N;
+  LMatrix **K;
+  LVector bias;
+  LMatrix **E;
 
-  MatrixXf **D;
-  MatrixXf **gK;
-  VectorXf gbias;
-  MatrixXf **IN;
-  MatrixXf **ID;
+  LMatrix **D;
+  LMatrix **gK;
+  LVector gbias;
+  LMatrix **IN;
+  LMatrix **ID;
 };
 
 
@@ -63,7 +64,7 @@ CLayer::CLayer(int batch,char *name):Layer(batch,name)
 
 CLayer::CLayer(int nk,int kr, int kc,int batch,int rp,int cp,int stride,char *name):Layer(batch,name)
 {
-  
+
   this->nk=nk;
   outz=nk;
   this->kr=kr;
@@ -73,7 +74,7 @@ CLayer::CLayer(int nk,int kr, int kc,int batch,int rp,int cp,int stride,char *na
   act=1;
   type=2;
   threads=4;
-  
+
   rpad=rp;
   cpad=cp;
 
@@ -95,10 +96,10 @@ void CLayer::setzpad(int t)
 void CLayer::addchild(Layer *l)
 {
   int enc=0;
-  
+
   for(int i=0;i<lout;i++)
     if (Lout[i]==l) enc=1;
-  
+
   if (!enc) {
     if (l->type==1) {
       Lout[lout++]=l;
@@ -133,7 +134,7 @@ void CLayer::addparent(Layer *l)
   CLayer *c;
   PLayer *p;
   CatLayer *cat;
-  
+
 
   if (lin>0) {
     if (Lin[0]!=l) {
@@ -151,7 +152,7 @@ void CLayer::addparent(Layer *l)
 
     c=(CLayer *)l;
     kz=c->outz;
-    
+
     if (!zpad) {
       outr=((c->outr-kr)/stride)+1;
       outc=((c->outc-kc)/stride)+1;
@@ -165,73 +166,73 @@ void CLayer::addparent(Layer *l)
     }
 
     fprintf(stderr,"Creating Convol (%d@%dx%d) output %d@%dx%d\n",nk,kr,kc,outz,outr,outc);
-    
+
     if ((outr<=0)||(outc<=0)||(outz<=0)||(nk<=0)||(kr<=0)||(kc<=0)) exit(1);
 
-    K=(MatrixXf **)malloc(nk*sizeof(MatrixXf *));
-    for(i=0;i<nk;i++) 
-      K[i]=new MatrixXf[kz];
-     
+    K=(LMatrix **)malloc(nk*sizeof(LMatrix *));
+    for(i=0;i<nk;i++)
+      K[i]=new LMatrix[kz];
+
     for(i=0;i<nk;i++)
       for(j=0;j<kz;j++)
 	K[i][j].resize(kr,kc);
 
     bias.resize(nk);
     gbias.resize(nk);
-     
-    gK=(MatrixXf **)malloc(nk*sizeof(MatrixXf *));
-    for(i=0;i<nk;i++) 
-      gK[i]=new MatrixXf[kz];
 
-  
+    gK=(LMatrix **)malloc(nk*sizeof(LMatrix *));
+    for(i=0;i<nk;i++)
+      gK[i]=new LMatrix[kz];
+
+
     for(i=0;i<nk;i++)
       for(j=0;j<kz;j++)
 	gK[i][j].resize(kr,kc);
 
-    pgK=(MatrixXf **)malloc(nk*sizeof(MatrixXf *));
-    for(i=0;i<nk;i++) 
-      pgK[i]=new MatrixXf[kz];
+    pgK=(LMatrix **)malloc(nk*sizeof(LMatrix *));
+    for(i=0;i<nk;i++)
+      pgK[i]=new LMatrix[kz];
 
-  
+
     for(i=0;i<nk;i++)
       for(j=0;j<kz;j++) {
 	pgK[i][j].resize(kr,kc);
 	pgK[i][j].setZero();
-      }	
-    
+      }
 
-    E=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+    E=(LMatrix **)malloc(batch*sizeof(LMatrix *));
     for(i=0;i<batch;i++) {
-      E[i]=new MatrixXf[nk];
+      E[i]=new LMatrix[nk];
     }
-  
+
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++) {
 	E[i][j].resize(outr,outc);
       }
-   
 
-    N=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+    N=(LMatrix **)malloc(batch*sizeof(LMatrix *));
     for(i=0;i<batch;i++) {
-      N[i]=new MatrixXf[nk];
+      N[i]=new LMatrix[nk];
     }
 
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	N[i][j].resize(outr,outc);
 
-    
-    De=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+    De=(LMatrix **)malloc(batch*sizeof(LMatrix *));
     for(i=0;i<batch;i++) {
-      De[i]=new MatrixXf[nk];
+      De[i]=new LMatrix[nk];
     }
-  
+
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	De[i][j].resize(outr,outc);
 
 
-    Dvec=new MatrixXf[nk];
+    Dvec=new LMatrix[nk];
     for(j=0;j<nk;j++)
       Dvec[j].resize(outr,outc);
 
@@ -243,43 +244,43 @@ void CLayer::addparent(Layer *l)
     bn_gvar.resize(nk);
     bn_g.resize(nk);
     bn_b.resize(nk);
-    
+
     gbn_mean.resize(nk);
     gbn_var.resize(nk);
     gbn_g.resize(nk);
     gbn_b.resize(nk);
 
-    BNE=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+    BNE=(LMatrix **)malloc(batch*sizeof(LMatrix *));
     for(i=0;i<batch;i++) {
-      BNE[i]=new MatrixXf[nk];
+      BNE[i]=new LMatrix[nk];
     }
-  
+
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	BNE[i][j].resize(outr,outc);
-  
-    bn_E=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+    bn_E=(LMatrix **)malloc(batch*sizeof(LMatrix *));
     for(i=0;i<batch;i++) {
-      bn_E[i]=new MatrixXf[nk];
+      bn_E[i]=new LMatrix[nk];
     }
-  
+
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	bn_E[i][j].resize(outr,outc);
-  
 
-    gbn_E=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+    gbn_E=(LMatrix **)malloc(batch*sizeof(LMatrix *));
     for(i=0;i<batch;i++) {
-      gbn_E[i]=new MatrixXf[nk];
+      gbn_E[i]=new LMatrix[nk];
     }
-  
+
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	gbn_E[i][j].resize(outr,outc);
-    
 
 
-    
+
+
   }
   else {
     fprintf(stderr,"Error: %s can not be parent of convol layer %s\n",l->name,name);
@@ -304,14 +305,14 @@ void *Convolt(void *threadarg)
   m = (struct tdata*) threadarg;
 
   int i,j,k,z,b,r,im,in,i2,j2,ib;
-  float sum=0.0;
+  double sum=0.0;
   int ini,fin;
 
-  MatrixXf **Nt=m->N;
-  MatrixXf **Et=m->E;
-  MatrixXf **Kt=m->K;
-  VectorXf bt=m->bias;
-  MatrixXf B(m->kr,m->kc);
+  LMatrix **Nt=m->N;
+  LMatrix **Et=m->E;
+  LMatrix **Kt=m->K;
+  LVector bt=m->bias;
+  LMatrix B(m->kr,m->kc);
   int stride=m->stride;
 
   if (m->nt<m->batch) {
@@ -324,56 +325,58 @@ void *Convolt(void *threadarg)
     fin=ini+1;
   }
 
-  if ((m->nt<m->batch)||(m->id<m->batch)) { 
+  if ((m->nt<m->batch)||(m->id<m->batch)) {
     // LOWERING
-    MatrixXf I(m->kr*m->kc*m->kz,(fin-ini)*m->outr*m->outc);
-    
-    Matrix<float, Dynamic,Dynamic, RowMajor> K;
+    LMatrix I(m->kr*m->kc*m->kz,(fin-ini)*m->outr*m->outc);
+
+    Matrix<Ltype, Dynamic,Dynamic, RowMajor> K;
     K.resize(m->nk, m->kr*m->kc*m->kz);
 
-    //MatrixXf K(m->nk, m->kr*m->kc*m->kz);  
+    //LMatrix K(m->nk, m->kr*m->kc*m->kz);
 
-    MatrixXf O(m->nk,(fin-ini)*m->outr*m->outc);
-	  
+    LMatrix O(m->nk,(fin-ini)*m->outr*m->outc);
+
     int size=m->outr*m->outc;
     int kr2=m->kr/2;
     int kc2=m->kc/2;
     int si,sj;
     int inr=m->inr;
     int inc=m->inc;
+    int bn=m->bn;
 
     if (!m->rpad) kr2=0;
+
     if (!m->cpad) kc2=0;
-    
+
     for(k=0;k<m->nk;k++) {
       b=0;
-      for(z=0;z<m->kz;z++) 
-	for(i=0;i<m->kr;i++) 
-	  for(j=0;j<m->kc;j++,b++) 
+      for(z=0;z<m->kz;z++)
+	for(i=0;i<m->kr;i++)
+	  for(j=0;j<m->kc;j++,b++)
 	    K(k,b)=Kt[k][z](i,j);
     }
     
-
+    
     ib=0;
     for(b=ini;b<fin;b++,ib+=size) {
-      in=0;      
-      for(i=0;i<m->outr;i++) 
+      in=0;
+      for(i=0;i<m->outr;i++)
 	for(j=0;j<m->outc;j++,in++) {
 	  im=0;
 	  for(z=0;z<m->kz;z++) {
 	    si=(i*stride)-kr2;
 	    sj=(j*stride)-kc2;
-	    for(i2=0;i2<m->kr;i2++,si++) 
-	      for(j2=0,sj=(j*stride)-kc2;j2<m->kc;j2++,im++,sj++) 
+	    for(i2=0;i2<m->kr;i2++,si++)
+	      for(j2=0,sj=(j*stride)-kc2;j2<m->kc;j2++,im++,sj++)
 		if ((si<0)||(sj<0)||(si>=inr)||(sj>=inc))
 		  I(im,in+ib)=0.0;
-		else 
+		else
 		  I(im,in+ib)=Nt[b][z](si,sj);
 
 	  }
 	}
     }
-
+    
 
     O=K*I;
 
@@ -381,14 +384,14 @@ void *Convolt(void *threadarg)
     for(b=ini;b<fin;b++,ib+=size) {
       for(k=0;k<m->nk;k++) {
 	z=0;
-	for(i=0;i<m->outr;i++) 
+	for(i=0;i<m->outr;i++)
 	  for(j=0;j<m->outc;j++,z++) {
 	    Et[b][k](i,j)=O(k,z+ib);
-	    Et[b][k](i,j)+=bt(k);
+	    if (!bn) Et[b][k](i,j)+=bt(k);
 	  }
       }
     }
-    
+
 
   }
 
@@ -398,27 +401,27 @@ void *Convolt(void *threadarg)
 
 void CLayer::Convol()
 {
-  
+
   void *status;
   int rc;
   int nt=threads;
   int i,b;
-  float sum=0.0;
+  double sum=0.0;
   CLayer *cin;
   PLayer *pin;
   CatLayer *cat;
-  
+
   ///////////////////
   cin=(CLayer *)Lin[0];
-    
+
   if (VERBOSE) {
-    for(b=0;b<batch;b++) 
-      for(i=0;i<cin->outz;i++) 
+    for(b=0;b<batch;b++)
+      for(i=0;i<cin->outz;i++)
 	sum+=cin->N[b][i].norm();
-    
+
     fprintf(stderr,"(%s) Parent N(%s %dx%d) = %f\n",name,cin->name,batch,cin->outz,sum);
   }
-  
+
 
   for( i=0; i < nt; ++i ){
     td[i].id=i;
@@ -441,6 +444,8 @@ void CLayer::Convol()
     td[i].E=E;
     td[i].inr=cin->outr;
     td[i].inc=cin->outc;
+    td[i].bn=bn;
+
 
     rc = pthread_create(&thr[i], NULL,Convolt, (void *)(&td[i]));
     if (rc){
@@ -457,15 +462,20 @@ void CLayer::Convol()
       exit(-1);
     }
   }
-
- 
 }
 
 void CLayer::doActivation()
 {
-  
+  if (!bn)
+    if (trmode) {
+      if (noiser>0.0) {
+	for(int i=0;i<batch;i++)
+	  for(int k=0;k<nk;k++)
+	    NoiseG(E[i][k],noiser,noisesd);
+      }
+    }
+
   if (bn) {
-#pragma omp parallel for
     for(int i=0;i<batch;i++)
       for(int k=0;k<nk;k++) {
 	if (act==0) N[i][k]=BNE[i][k];
@@ -475,7 +485,6 @@ void CLayer::doActivation()
       }
   }
   else {
-#pragma omp parallel for
     for(int i=0;i<batch;i++)
       for(int k=0;k<nk;k++) {
 	if (act==0) N[i][k]=E[i][k];
@@ -494,42 +503,48 @@ void CLayer::fBN()
 
   if (trmode) {
     bnc++;
-#pragma omp parallel for
     for(int i=0;i<nk;i++) {
       int j,k,r,c,b;
-      float m,var,eps=0.0001;
+      double m,var,eps=0.0001;
       m=0;
       for(b=0;b<batch;b++)
 	for(r=0;r<outr;r++)
-	  for(c=0;c<outc;c++) 
+	  for(c=0;c<outc;c++)
 	    m+=E[b][i](r,c);
       m/=(batch*outr*outc);
       bn_mean(i)=m;
-    
+
       var=0;
       for(b=0;b<batch;b++)
 	for(r=0;r<outr;r++)
-	  for(c=0;c<outc;c++) 
+	  for(c=0;c<outc;c++)
 	    var+=(m-E[b][i](r,c))*(m-E[b][i](r,c));
       var/=((batch*outr*outc)-1);
       bn_var(i)=var;
-    	
+
       for(b=0;b<batch;b++)
 	for(r=0;r<outr;r++)
-	  for(c=0;c<outc;c++) {
+	  for(c=0;c<outc;c++)
 	    bn_E[b][i](r,c)=(E[b][i](r,c)-bn_mean(i))/sqrt(bn_var(i)+eps);
+
+      if (noiser)
+	for(b=0;b<batch;b++)
+	  NoiseG(bn_E[b][i],noiser,noisesd);
+
+
+      for(b=0;b<batch;b++)
+	for(r=0;r<outr;r++)
+	  for(c=0;c<outc;c++)
 	    BNE[b][i](r,c)=(bn_g(i)*bn_E[b][i](r,c))+bn_b(i);
-	  }
 
     }
     bn_gmean+=bn_mean;
-    bn_gvar+=bn_var;  
+    bn_gvar+=bn_var;
   }
   else {
-#pragma omp parallel for
     for(int i=0;i<nk;i++) {
       int j,k,r,c,b;
-      float m,var,eps=0.0001;
+      double m,var,eps=0.0001;
       for(b=0;b<batch;b++)
 	for(r=0;r<outr;r++)
 	  for(c=0;c<outc;c++) {
@@ -538,33 +553,33 @@ void CLayer::fBN()
 	  }
     }
   }
-    
+
 }
 
 
 void CLayer::forward()
 {
   int i,j,k,b,r,c;
-  float sum=0;
+  double sum=0;
 
   if (lout>0) {
-   
+
     Convol();
 
     if (VERBOSE) {
       for(i=0;i<batch;i++)
-	for(k=0;k<nk;k++) 
+	for(k=0;k<nk;k++)
 	  sum+=E[i][k].norm();
       fprintf(stderr,"Preact E(%s %dx%d)=%f\n",name,batch,nk,sum);
     }
-    
+
     //BN
     if (bn) fBN();
 
     if ((VERBOSE)&&(bn)) {
       sum=0.0;
       for(i=0;i<batch;i++)
-	for(k=0;k<nk;k++) 
+	for(k=0;k<nk;k++)
 	  sum+=BNE[i][k].norm();
       fprintf(stderr,"BNE(%s)=%f\n",name,sum);
     }
@@ -575,19 +590,19 @@ void CLayer::forward()
     // drop-out
     if (drop>0.0) {
       if (trmode) {
-	for(int j=0;j<nk;j++) 
+	for(int j=0;j<nk;j++)
 	  for(int r=0;r<outr;r++)
 	    for(int c=0;c<outc;c++)
 	      if (uniform()<drop) {
 		Dvec[j](r,c)=0.0;
-		for(int i=0;i<batch;i++) 
+		for(int i=0;i<batch;i++)
 		  N[i][j](r,c)=0.0;
 	      }
 	      else Dvec[j](r,c)=1.0;
       }
       else { //testmode
-	for(int i=0;i<batch;i++) 
-	  for(int j=0;j<nk;j++) 
+	for(int i=0;i<batch;i++)
+	  for(int j=0;j<nk;j++)
 	    for(int r=0;r<outr;r++)
 	      for(int c=0;c<outc;c++)
 		N[i][j](r,c)*=(1.0-drop);
@@ -597,12 +612,22 @@ void CLayer::forward()
     if (VERBOSE) {
       sum=0.0;
       for(i=0;i<batch;i++)
-	for(k=0;k<nk;k++) 
+	for(k=0;k<nk;k++)
 	  sum+=N[i][k].norm();
       fprintf(stderr,"N(%s %dx%d)=%f\n",name,batch,nk,sum);
     }
+
   }
 }
+
+
+
+
+
+
+
+
+
 
 ///////////////////
 // BACKWARD
@@ -610,35 +635,36 @@ void CLayer::forward()
 void *ConvolB1t(void *threadarg)
 {
   struct tdata *m;
-  
+
   m = (struct tdata*) threadarg;
 
   int i,j,k,z,b,i2,j2;
-  float sum;
+  double sum;
   int ini,fin;
 
-  MatrixXf **Dt=m->D;
-  MatrixXf **INt=m->IN;
-  MatrixXf **gKt=m->gK;
-  VectorXf gbt=m->gbias;
-  MatrixXf **Kt=m->K;
+  LMatrix **Dt=m->D;
+  LMatrix **INt=m->IN;
+  LMatrix **gKt=m->gK;
+  LVector gbt=m->gbias;
+  LMatrix **Kt=m->K;
   int kr2=m->kr/2;
   int kc2=m->kc/2;
   int si,sj;
   int stride=m->stride;
   int inr=m->inr;
   int inc=m->inc;
+  int bn=m->bn;
 
   if (!m->rpad) kr2=0;
   if (!m->cpad) kc2=0;
-    
+
   // Compute Grad
   int kini,kfin,zini,zfin;
-  
+
   kini=zini=0;
   kfin=m->nk;
   zfin=m->kz;
-    
+
 
   if (m->nk>m->kz) {
     if (m->nt<m->nk) {
@@ -665,19 +691,19 @@ void *ConvolB1t(void *threadarg)
   }
 
   if ( ((m->nk>m->kz)&&((m->nt<m->nk)||(m->id<m->nk))) || ((m->nk<=m->kz)&&((m->nt<m->kz)||(m->id<m->kz))) ) {
-    
+
     // LOWERING
-    Matrix <float,Dynamic,Dynamic,RowMajor> I;
+    Matrix <Ltype,Dynamic,Dynamic,RowMajor> I;
     I.resize((zfin-zini)*m->kr*m->kc,m->batch*m->outr*m->outc);
 
-    //MatrixXf I((zfin-zini)*m->kr*m->kc,m->batch*m->outr*m->outc);
-    MatrixXf D(m->batch*m->outr*m->outc,(kfin-kini));
-    MatrixXf Res((zfin-zini)*m->kr*m->kc,(kfin-kini));
+    //LMatrix I((zfin-zini)*m->kr*m->kc,m->batch*m->outr*m->outc);
+    LMatrix D(m->batch*m->outr*m->outc,(kfin-kini));
+    LMatrix Res((zfin-zini)*m->kr*m->kc,(kfin-kini));
     int p,q;
 
     // Prepare I
     q=0;
-    for(z=zini;z<zfin;z++) {	
+    for(z=zini;z<zfin;z++) {
       for(i=0;i<m->kr;i++)
 	for(j=0;j<m->kc;j++,q++) {
 	  p=0;
@@ -703,62 +729,63 @@ void *ConvolB1t(void *threadarg)
     }
 
     Res=I*D;
-    
+
     // Reshape to gradient
     for(k=kini;k<kfin;k++) {
       p=0;
-      for(z=zini;z<zfin;z++) {	
+      for(z=zini;z<zfin;z++) {
 	for(i2=0;i2<m->kr;i2++)
-	  for(j2=0;j2<m->kc;j2++,p++) 
+	  for(j2=0;j2<m->kc;j2++,p++)
 	    gKt[k][z](i2,j2)=Res(p,k-kini);
       }
     }
-    
+
 
   }//if
 
   //Bias
-  if (m->nt<m->nk) {
-    kini=(m->id*(m->nk/m->nt));
-    kfin=kini+(m->nk/m->nt);
-    if (m->id==(m->nt-1)) kfin=m->nk;
+  if (!bn) {
+    if (m->nt<m->nk) {
+      kini=(m->id*(m->nk/m->nt));
+      kfin=kini+(m->nk/m->nt);
+      if (m->id==(m->nt-1)) kfin=m->nk;
+    }
+    else {
+      kini=m->id;
+      kfin=kini+1;
+    }
+
+    if ((m->nt<m->nk)||(m->id<m->nk)) {
+      for(k=kini;k<kfin;k++)
+	for(b=0;b<m->batch;b++) {
+	  for(i2=0;i2<m->outr;i2++)
+	    for(j2=0;j2<m->outc;j2++)
+	      gbt(k)+=Dt[b][k](i2,j2);
+	}
+    }
   }
-  else {
-    kini=m->id;
-    kfin=kini+1;
-  }
- 
-  if ((m->nt<m->nk)||(m->id<m->nk)) {
-    for(k=kini;k<kfin;k++) 
-      for(b=0;b<m->batch;b++) {
-	for(i2=0;i2<m->outr;i2++)
-	  for(j2=0;j2<m->outc;j2++)
-	    gbt(k)+=Dt[b][k](i2,j2);
-      }
-  }
-  
 }
 
 
 void *ConvolB2t(void *threadarg)
 {
   struct tdata *m;
-  
+
   m = (struct tdata*) threadarg;
-  
+
   int i,j,k,z,b,r,c,s,im,in,i2,j2,ib;
   int ini,fin;
-  MatrixXf **Dt=m->D;
-  MatrixXf **IDt=m->ID;
-  MatrixXf **Kt=m->K;
-  
+  LMatrix **Dt=m->D;
+  LMatrix **IDt=m->ID;
+  LMatrix **Kt=m->K;
+
   int bini,bfin,zini,zfin;
 
-  // BackProp Deltas 
+  // BackProp Deltas
   bini=zini=0;
   bfin=m->batch;
   zfin=m->kz;
-    
+
   if (m->batch>m->kz) {
     if (m->nt<m->batch) {
       bini=(m->id*(m->batch/m->nt));
@@ -782,22 +809,22 @@ void *ConvolB2t(void *threadarg)
     }
 
   }
- 
+
   if ( ((m->batch>m->kz)&&((m->nt<m->batch)||(m->id<m->batch))) || ((m->batch<=m->kz)&&((m->nt<m->kz)||(m->id<m->kz))) ) {
     // LOWERING
-    //Matrix <float,Dynamic,Dynamic,RowMajor> Del;
+    //Matrix <Ltype,Dynamic,Dynamic,RowMajor> Del;
     //Del.resize(bfin-bini,m->nk);
-    MatrixXf Del(bfin-bini,m->nk);
+    LMatrix Del(bfin-bini,m->nk);
 
 
-    //Matrix <float,Dynamic,Dynamic,RowMajor> Kr;
+    //Matrix <Ltype,Dynamic,Dynamic,RowMajor> Kr;
     //Kr.resize(m->nk,m->kr*m->kc);
-    MatrixXf *Kr;
-    Kr=new MatrixXf[m->kz];
+    LMatrix *Kr;
+    Kr=new LMatrix[m->kz];
     for(i=0;i<m->kz;i++)
       Kr[i].resize(m->nk,m->kr*m->kc);
 
-    MatrixXf Res(bfin-bini,m->kr*m->kc);
+    LMatrix Res(bfin-bini,m->kr*m->kc);
 
     int si,sj;
     int kr2=m->kr/2;
@@ -816,20 +843,20 @@ void *ConvolB2t(void *threadarg)
 	  Kr[z](k,i2)=Kt[k][z](r,c);
 	}
     }
-    
+
     if (m->zpad) {
 
 
       for(i=0;i<m->outr;i++) {
 	for(j=0;j<m->outc;j++) {
 
-	  for(b=bini;b<bfin;b++) 
+	  for(b=bini;b<bfin;b++)
 	    for(k=0;k<m->nk;k++)
 	      Del(b-bini,k)=Dt[b][k](i,j);
 
 	  for(z=zini;z<zfin;z++) {
 	    Res=Del*Kr[z];
-	
+
 	    for(b=bini;b<bfin;b++) {
 	      for(i2=0,r=0,c=0;i2<m->kc*m->kr;i2++,c++) {
 		if (c==m->kc) {c=0;r++;}
@@ -849,19 +876,19 @@ void *ConvolB2t(void *threadarg)
       for(i=0;i<m->outr;i++) {
 	for(j=0;j<m->outc;j++) {
 
-	  for(b=bini;b<bfin;b++) 
+	  for(b=bini;b<bfin;b++)
 	    for(k=0;k<m->nk;k++)
 	      Del(b-bini,k)=Dt[b][k](i,j);
 
 	  for(z=zini;z<zfin;z++) {
 
 	    Res=Del*Kr[z];
-	
+
 	    for(b=bini;b<bfin;b++) {
 	      for(i2=0,r=0,c=0;i2<m->kc*m->kr;i2++,c++) {
 		if (c==m->kc) {c=0;r++;}
 		IDt[b][z](i*stride+r,j*stride+c)+=Res(b-bini,i2);
-		
+
 	      }
 	    }
 
@@ -870,41 +897,45 @@ void *ConvolB2t(void *threadarg)
 	}//j
       }//i
     }
+
+    for(i=0;i<m->kz;i++)
+      Kr[i].resize(0,0);
+
   }
-  
+
 }
 
 
 void CLayer::ConvolB()
 {
-  
+
   void *status;
   int rc;
   int nt=threads;
   int i,j,r,c;
-  float sum;
+  double sum;
 
   CLayer *cin;
 
   cin=(CLayer *)Lin[0];
 
-  if (drop>0.0) 
-    //#pragma omp parallel for
-    for(int j=0;j<nk;j++) 
+  if (drop>0.0)
+    #pragma omp parallel for
+    for(int j=0;j<nk;j++)
       for(int r=0;r<outr;r++)
 	for(int c=0;c<outc;c++)
-	  if (Dvec[j](r,c)==0.0) 
-	    for(int i=0;i<batch;i++) 
+	  if (Dvec[j](r,c)==0.0)
+	    for(int i=0;i<batch;i++)
 	      De[i][j](r,c)=0.0;
 
-  
+
   if (act==0){
     //Delta as it is
-  }    
+  }
   else if (act==1) { //ReLu Deriv
-#pragma omp parallel for
-    for(int b=0;b<batch;b++) 
-      for(int k=0;k<nk;k++) 
+    #pragma omp parallel for
+    for(int b=0;b<batch;b++)
+      for(int k=0;k<nk;k++)
 	for(int r=0;r<outr;r++)
 	  for(int c=0;c<outc;c++)
 	    if (bn) {
@@ -912,13 +943,13 @@ void CLayer::ConvolB()
 	    }
 	    else
 	      if (E[b][k](r,c)<=0) De[b][k](r,c)=0.0;
-		
-	    
+
+
   }
   else if (act==2) { //Sigmoid Deriv
 #pragma omp parallel for
-    for(int b=0;b<batch;b++) 
-      for(int k=0;k<nk;k++) 
+    for(int b=0;b<batch;b++)
+      for(int k=0;k<nk;k++)
 	for(int r=0;r<outr;r++)
 	  for(int c=0;c<outc;c++)
 	    if (bn) De[b][k](r,c)*=dsigm(BNE[b][k](r,c));
@@ -926,8 +957,8 @@ void CLayer::ConvolB()
   }
   else if (act==3) { //ELU
 #pragma omp parallel for
-    for(int b=0;b<batch;b++) 
-      for(int k=0;k<nk;k++) 
+    for(int b=0;b<batch;b++)
+      for(int k=0;k<nk;k++)
 	for(int r=0;r<outr;r++)
 	  for(int c=0;c<outc;c++)
 	    if (bn) {
@@ -935,25 +966,25 @@ void CLayer::ConvolB()
 	    }
 	    else if (E[b][k](r,c)<=0) De[b][k](r,c)*=(N[b][k](r,c)+1);
   }
-  
-  
+
+
 
   if (bn) bBN();
 
 
   if (VERBOSE) {
     sum=0;
-    for(int b=0;b<batch;b++) 
-      for(int k=0;k<nk;k++) 
+    for(int b=0;b<batch;b++)
+      for(int k=0;k<nk;k++)
 	sum+=De[b][k].norm();
     fprintf(stderr,"DeN(%s) %f\n",name,sum);
   }
 
- 
+
   if (VERBOSE) {
     sum=0;
-    for(int k=0;k<nk;k++) 
-      for(int z=0;z<kz;z++) 
+    for(int k=0;k<nk;k++)
+      for(int z=0;z<kz;z++)
 	sum+=K[k][z].norm();
     fprintf(stderr,"KernelN %f\n",sum);
   }
@@ -983,11 +1014,11 @@ void CLayer::ConvolB()
     td[i].K=K;
     td[i].inr=cin->outr;
     td[i].inc=cin->outc;
+    td[i].bn=bn;
 
-    
     td[i].IN=cin->N;
     td[i].ID=cin->De;
-    
+
     if (i<nt/2) {
       rc = pthread_create(&thr[i], NULL,ConvolB1t, (void *)(&td[i]));
       if (rc){
@@ -1002,10 +1033,10 @@ void CLayer::ConvolB()
 	exit(-1);
       }
     }
-    
+
   }
 
-  
+
   for( i=0; i < nt; ++i ){
     rc = pthread_join(thr[i], &status);
     if (rc){
@@ -1014,16 +1045,16 @@ void CLayer::ConvolB()
     }
   }
 
-  
+
   if (VERBOSE) {
-    float sum=0.0;
-    for(int i=0;i<nk;i++) 
-      for(int j=0;j<kz;j++) 
+    double sum=0.0;
+    for(int i=0;i<nk;i++)
+      for(int j=0;j<kz;j++)
 	sum+=(gK[i][j].norm());
-    
+
     fprintf(stderr,"grads (%s) %f\n",name,sum);
   }
-  
+
 }
 
 
@@ -1032,42 +1063,42 @@ void CLayer::bBN()
 #pragma omp parallel for
   for(int i=0;i<nk;i++) {
     int j,k,r,c,b;
-    float m,var,eps=0.0001;
-    
+    double m,var,eps=0.0001;
+
     m=batch*outr*outc;
     //1 Gamma
     gbn_g(i)=0.0;
     for(b=0;b<batch;b++)
       for(r=0;r<outr;r++)
-	for(c=0;c<outc;c++) 
+	for(c=0;c<outc;c++)
 	  gbn_g(i)+=De[b][i](r,c)*bn_E[b][i](r,c);
-  
+
     //2 Beta
 
     gbn_b(i)=0.0;
     for(b=0;b<batch;b++)
       for(r=0;r<outr;r++)
-	for(c=0;c<outc;c++) 
+	for(c=0;c<outc;c++)
 	  gbn_b(i)+=De[b][i](r,c);
-  
+
 
     //3 bnE
 
     for(b=0;b<batch;b++)
       for(r=0;r<outr;r++)
-	for(c=0;c<outc;c++) 
+	for(c=0;c<outc;c++)
 	  gbn_E[b][i](r,c)=De[b][i](r,c)*bn_g(i);
-  
-	  
+
+
     //4 Var
 
     gbn_var(i)=0;
     for(b=0;b<batch;b++)
       for(r=0;r<outr;r++)
-	for(c=0;c<outc;c++) 
+	for(c=0;c<outc;c++)
 	  gbn_var(i)+=-0.5*gbn_E[b][i](r,c)*(E[b][i](r,c)-bn_mean(i))/((bn_var(i)+eps)*sqrt(bn_var(i)+eps));
-    
-  
+
+
     //5 Mean
 
     gbn_mean(i)=0;
@@ -1076,9 +1107,9 @@ void CLayer::bBN()
 	for(c=0;c<outc;c++) {
 	  gbn_mean(i)+=-gbn_E[b][i](r,c)/sqrt(bn_var(i)+eps);
 	  gbn_mean(i)+=-2*gbn_var(i)*(E[b][i](r,c)-bn_mean(i))/m;
-	  
+
 	}
-  
+
     //6 x
 
     for(b=0;b<batch;b++)
@@ -1089,8 +1120,8 @@ void CLayer::bBN()
 	  De[b][i](r,c)+=gbn_mean(i)/m;
 	}
   }
-	  
-  
+
+
 }
 
 
@@ -1106,7 +1137,7 @@ void CLayer::backward()
 void CLayer::initialize()
 {
   int i,j,r,c;
-  float s=sqrt(2.0/(kr*kc*kz));
+  double s=sqrt(2.0/(kr*kc*kz));
 
   if (!init) {
     for(i=0;i<nk;i++) {
@@ -1120,143 +1151,147 @@ void CLayer::initialize()
     }
 
     for(i=0;i<nk;i++) {
-      bn_g(i)=1.0;      
+      bn_g(i)=1.0;
       bn_b(i)=0.0;
     }
     init=1;
   }
 }
 
-  void CLayer::applygrads()
-  {
-    float sum=0.0;
+void CLayer::applygrads()
+{
+  double sum=0.0;
 
 #pragma omp parallel for
-    for(int i=0;i<nk;i++) {
-      bias(i)+=(mu/batch)*gbias(i);
+  for(int i=0;i<nk;i++) {
+    if (!bn) bias(i)+=(mu/batch)*gbias(i);
 
-      for(int j=0;j<kz;j++) {
-	pgK[i][j]=(mu/batch)*gK[i][j]+mmu*pgK[i][j];
-	K[i][j]+=pgK[i][j];
-	if (l2!=0.0) 
-	  K[i][j]-=l2*K[i][j];
-	sum+=(gK[i][j].norm());
-      }
-      if (sum!=sum) {
-	fprintf(stderr,"Nan values!!\n");
-	exit(1);
-      }
-      if (bn) {
-	bn_g(i)+=(mu/batch)*gbn_g(i);
-	bn_b(i)+=(mu/batch)*gbn_b(i);
-      }
-  
+    for(int j=0;j<kz;j++) {
+      pgK[i][j]=(mu/batch)*gK[i][j]+mmu*pgK[i][j];
+      K[i][j]+=pgK[i][j];
+      if (l2!=0.0)
+	K[i][j]-=l2*K[i][j];
+      sum+=(gK[i][j].norm());
     }
-    if (VERBOSE) {
-      fprintf(stderr,"%s IncK %f\n",name,sum/(nk*kz));
+    if (sum!=sum) {
+      fprintf(stderr,"Nan values!!\n");
+      exit(1);
     }
-  
-    if (VERBOSE) fprintf(stderr,"grads (%s) %f\n",name,sum);
-  }
-	  
-  void CLayer::resetmomentum()
-  {
-    int k,z;
-
-    if (VERBOSE)  fprintf(stderr,"layer %s reset momentum\n",name);
-    for(k=0;k<nk;k++) 
-      for(z=0;z<kz;z++) 
-	pgK[k][z].setZero();
-
-  }
-
-  void CLayer::reset()
-  {
-    int i,j,k,z;
-
-    for(i=0;i<batch;i++)
-      for(j=0;j<nk;j++)
-	De[i][j].setZero();
-
-    gbias.setZero();
-    for(k=0;k<nk;k++) 
-      for(z=0;z<kz;z++) 
-	gK[k][z].setZero();
-
-  }
-  void CLayer::resetstats()
-  {
-
-    bnc=0;
-
-    bn_gmean.setZero();
-    bn_gvar.setZero();
-
-  }
-
-void CLayer::savekernels(int v)
-{
-  int i,j,r,c;
-  FILE *fs;
-  char name[100];
-  float min,max,fv;
-  int g;
-
-
-  if ((kz==1)||(kz==3)) {
-
-    fprintf(stderr,"Saving kernels...\n");
-    min=max=K[0][0](0,0);
-
-    for(i=0;i<nk;i++)
-      for(j=0;j<kz;j++) 
-	for(r=0;r<kr;r++)
-	  for(c=0;c<kc;c++){
-	    if (K[i][j](r,c)>max) max=K[i][j](r,c);
-	    if (K[i][j](r,c)<min) min=K[i][j](r,c);
-	  }
-
-      
-    if (kz==3) {
-      sprintf(name,"kernel_%d.ppm",v);
-      fs=fopen(name,"wt");
-      fprintf(fs,"P3\n%d %d\n255\n",((kc+1)*nk),kr);
-    }
-    else {
-      sprintf(name,"kernel_%d.pgm",v);
-      fs=fopen(name,"wt");
-      fprintf(fs,"P2\n%d %d\n255\n",(kc+1)*nk,kr);
-    }
-    
-
-    for(r=0;r<kr;r++) {
-      for(i=0;i<nk;i++) {
-	for(c=0;c<kc;c++) {
-	  for(j=0;j<kz;j++) {
-	    fv=(K[i][j](r,c)-min)/(max-min);
-	    fv*=255.0;
-	    g=fv;
-	    fprintf(fs,"%d ",g);
-	  }
-	}
-	for(j=0;j<kz;j++)
-	  fprintf(fs,"255 ");
-      }
-      fprintf(fs,"\n");
+    if (bn) {
+      bn_g(i)+=(mu/batch)*gbn_g(i);
+      bn_b(i)+=(mu/batch)*gbn_b(i);
     }
 
-    fprintf(fs,"\n");
-    fclose(fs);
-      
   }
-  else {
-    fprintf(stderr,"Not saving kernels...\n");
+  if (VERBOSE) {
+    fprintf(stderr,"%s IncK %f\n",name,sum/(nk*kz));
   }
+
+  if (VERBOSE) fprintf(stderr,"grads (%s) %f\n",name,sum);
 }
 
-  ///////////////////////////////////////////
-  /// Input Convol Layer
-  ///////////////////////////////////////////
+void CLayer::resetmomentum()
+{
+  int k,z;
+
+  if (VERBOSE)  fprintf(stderr,"layer %s reset momentum\n",name);
+
+  if (lin>0) //not for CIN
+    for(k=0;k<nk;k++)
+      for(z=0;z<kz;z++)
+	pgK[k][z].setZero();
+
+}
+
+void CLayer::reset()
+{
+  int i,j,k,z;
+
+  for(i=0;i<batch;i++)
+    for(j=0;j<nk;j++)
+      De[i][j].setZero();
+
+  gbias.setZero();
+  for(k=0;k<nk;k++)
+    for(z=0;z<kz;z++)
+      gK[k][z].setZero();
+
+}
+void CLayer::resetstats()
+{
+
+  bnc=0;
+
+  bn_gmean.setZero();
+  bn_gvar.setZero();
+
+}
+
+void CLayer::printkernels( FILE *fe)
+{
+  int i,j,r,c;
+
+
+  for(i=0;i<nk;i++) {
+    for(j=0;j<kz;j++) {
+      for(r=0;r<kr;r++) {
+	for(c=0;c<kc;c++)
+	  fprintf(fe,"%f ",K[i][j](r,c));
+      }
+    }
+    fprintf(fe,"\n");
+  }
+  fclose(fe);
+}
+
+
+
+void CLayer::save(FILE *fe)
+{
+  int i,j,r,c;
+
+  save_param(fe);
+
+  for(i=0;i<nk;i++) {
+    for(j=0;j<kz;j++)
+      for(r=0;r<kr;r++)
+	for(c=0;c<kc;c++)
+	  fprintf(fe,"%f ",K[i][j](r,c));
+    fprintf(fe,"%f ",bias(i));
+  }
+  fprintf(fe,"\n");
+
+}
+
+void CLayer::load(FILE *fe)
+{
+
+  int i,j,r,c;
+  double fv;
+  int fsd;
+
+  load_param(fe);
+
+
+  for(i=0;i<nk;i++) {
+    for(j=0;j<kz;j++)
+      for(r=0;r<kr;r++)
+	for(c=0;c<kc;c++) {
+	  fsd=fscanf(fe,"%lf ",&fv);
+	  K[i][j](r,c)=fv;
+	}
+    fsd=fscanf(fe,"%lf ",&fv);
+    bias(i)=fv;
+  }
+  fsd=fscanf(fe,"\n");
+
+}
+
+
+
+///////////////////////////////////////////
+/// Input Convol Layer
+///////////////////////////////////////////
 ICLayer::ICLayer(Data *D,int batch,int z,int ir,int ic,int cr,int cc,char *name):CLayer(batch,name)
 {
   int i,j;
@@ -1283,7 +1318,7 @@ ICLayer::ICLayer(Data *D,int batch,int z,int ir,int ic,int cr,int cc,char *name)
   outc=cc;
   nk=z;
   outz=z;
-  
+
   if ((imr<outr)||(imc<outc)){
     fprintf(stderr,"Error input lower than out (%dx%d)<(%dx%d)\n",imr,imc,outr,outc);
     exit(1);
@@ -1292,47 +1327,47 @@ ICLayer::ICLayer(Data *D,int batch,int z,int ir,int ic,int cr,int cc,char *name)
   fprintf(stderr,"Creating Convol input %d@%dx%d from %d@%dx%d batch %d\n",outz,outr,outc,outz,imr,imc,batch);
 
 
-  N=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+  N=(LMatrix **)malloc(batch*sizeof(LMatrix *));
   if (N==NULL) {
     fprintf(stderr,"Error Mem\n");
     exit(1);
   }
 
   for(i=0;i<batch;i++) {
-    N[i]=new MatrixXf[nk];
-    
+    N[i]=new LMatrix[nk];
+
     if (N[i]==NULL) {
       fprintf(stderr,"Error Mem i\n");
       exit(1);
     }
   }
 
-  for(i=0;i<batch;i++) 
-    for(j=0;j<nk;j++) 
+  for(i=0;i<batch;i++)
+    for(j=0;j<nk;j++)
       (N[i][j]).resize(outr,outc);
 
-  
-  De=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+  De=(LMatrix **)malloc(batch*sizeof(LMatrix *));
   if (N==NULL) {
     fprintf(stderr,"Error Mem\n");
     exit(1);
   }
 
   for(i=0;i<batch;i++) {
-    De[i]=new MatrixXf[nk];
-    
+    De[i]=new LMatrix[nk];
+
     if (De[i]==NULL) {
       fprintf(stderr,"Error Mem i\n");
       exit(1);
     }
   }
 
-  for(i=0;i<batch;i++) 
-    for(j=0;j<nk;j++) 
+  for(i=0;i<batch;i++)
+    for(j=0;j<nk;j++)
       (De[i][j]).resize(outr,outc);
 
-  
-  Dvec=new MatrixXf[nk];
+
+  Dvec=new LMatrix[nk];
   for(j=0;j<nk;j++)
     Dvec[j].resize(outr,outc);
 
@@ -1340,42 +1375,42 @@ ICLayer::ICLayer(Data *D,int batch,int z,int ir,int ic,int cr,int cc,char *name)
 }
 
   // RANDOM FLIP
-void ICLayer::doflip(MatrixXf& I)
+void ICLayer::doflip(LMatrix& I)
 {
   int i,j,r,c;
-  MatrixXf T=I;
+  LMatrix T=I;
 
   r=I.rows();
   c=I.cols();
 
   for(i=0;i<r;i++)
     for(j=0;j<c;j++)
-      I(i,j)=T(i,(c-1)-j);  
+      I(i,j)=T(i,(c-1)-j);
 }
 
 
   // RANDOM SHIFT
-void ICLayer::doshift(MatrixXf& I,int sx,int sy)
+void ICLayer::doshift(LMatrix& I,int sx,int sy)
 {
   int i,j,r,c;
-  MatrixXf T=I;
+  LMatrix T=I;
 
   r=I.rows();
   c=I.cols();
 
   I.setZero();
-  
+
   for(i=0;i<r;i++)
     if ((i+sy>=0)&&(i+sy<r))
       for(j=0;j<c;j++)
-	if ((j+sx>=0)&&(j+sx<c)) 
+	if ((j+sx>=0)&&(j+sx<c))
 	  I(i+sy,j+sx)=T(i,j);
 
 }
 
 
   // RANDOM NOISE
-void ICLayer::donoise(MatrixXf& I,float ratio, float sd)
+void ICLayer::donoise(LMatrix& I,double ratio, double sd)
 {
   int i,j,r,c;
 
@@ -1386,14 +1421,29 @@ void ICLayer::donoise(MatrixXf& I,float ratio, float sd)
     for(j=0;j<c;j++)
       if (uniform()<ratio)
 	I(i,j)+=gauss(0.0,sd);
-  
+
+}
+
+void ICLayer::donoiseb(LMatrix& I,double ratio)
+{
+  int i,j,r,c;
+
+  r=I.rows();
+  c=I.cols();
+
+  for(i=0;i<r;i++)
+    for(j=0;j<c;j++)
+      if (uniform()<ratio)
+	if (I(i,j)) I(i,j)=0.0;
+	else I(i,j)=1.0;
+
 }
 
   // RANDOM BRIGHTNESS
-float ICLayer::calc_brightness(MatrixXf I,float factor) 
+double ICLayer::calc_brightness(LMatrix I,double factor)
 {
   int i,j,r,c;
-  float br;
+  double br;
 
   r=I.rows();
   c=I.cols();
@@ -1409,7 +1459,7 @@ float ICLayer::calc_brightness(MatrixXf I,float factor)
   return br;
 }
 
-void ICLayer::dobrightness(MatrixXf& I,float b) 
+void ICLayer::dobrightness(LMatrix& I,double b)
 {
   int i,j,r,c;
 
@@ -1424,16 +1474,16 @@ void ICLayer::dobrightness(MatrixXf& I,float b)
 
 
   // RANDOM CONTRAST
-void ICLayer::docontrast(MatrixXf& I,float factor) 
+void ICLayer::docontrast(LMatrix& I,double factor)
 {
   int i,j,r,c;
   int sc;
-  float smin;
-  float s,u;
+  double smin;
+  double s,u;
 
   r=I.rows();
   c=I.cols();
-  
+
   smin=1.0/factor;
   u=uniform();
 
@@ -1445,13 +1495,13 @@ void ICLayer::docontrast(MatrixXf& I,float factor)
 
 }
 
-void ICLayer::SaveImage(MatrixXf R,MatrixXf G,MatrixXf B,char *name)
+void ICLayer::SaveImage(LMatrix R,LMatrix G,LMatrix B,char *name)
 {
   FILE *fs;
   int r,c,i,j;
 
   fs=fopen(name,"wt");
-  
+
 
   r=R.rows();
   c=R.cols();
@@ -1470,7 +1520,7 @@ void ICLayer::SaveImage(MatrixXf R,MatrixXf G,MatrixXf B,char *name)
   }
   fclose(fs);
   fprintf(stderr,"Image saved\n");
-  
+
   getchar();
 }
 
@@ -1481,7 +1531,7 @@ void ICLayer::getbatch(Data *Dt)
   int cr,cc; //crop
 
   for(b=0;b<batch;b++) {
-    
+
     if (trmode) {
       cr=cc=0;
       if (imr!=outr) {
@@ -1501,19 +1551,19 @@ void ICLayer::getbatch(Data *Dt)
       for(i=0;i<outr;i++) {
 	p=pk+((cr+i)*imc)+cc;
 	for(j=0;j<outc;j++,p++) {
-	  N[b][k](i,j)=Dt->M((Dt->gethead()+b)%Dt->num,p);
+	  N[b][k](i,j)=Dt->M(Dt->getpos(b),p);
 	}
       }
     }
 
     //SaveImage(N[b][0],N[b][1],N[b][2],"orig.ppm");
-    
+
     if (trmode) {
       //FLIP
-      if ((flip)&&(rand()%2==0)) 
-	for(k=0;k<nk;k++) 
+      if ((flip)&&(rand()%2==0))
+	for(k=0;k<nk;k++)
 	  doflip(N[b][k]);
-    
+
 
 
       //SHIFT
@@ -1523,28 +1573,32 @@ void ICLayer::getbatch(Data *Dt)
 	sx-=shift;
 	sy-=shift;
 
-	for(k=0;k<nk;k++) 
+	for(k=0;k<nk;k++)
 	  doshift(N[b][k],sx,sy);
       }
 
 
       //BRIGHTNESS
       if (brightness!=0.0) {
-	float br=calc_brightness(N[b][0],brightness);
-	for(k=0;k<nk;k++) 
+	double br=calc_brightness(N[b][0],brightness);
+	for(k=0;k<nk;k++)
 	  dobrightness(N[b][k],br);
-     
+
       }
       //CONTRAST
       if (contrast!=0.0) {
-	for(k=0;k<nk;k++) 
+	for(k=0;k<nk;k++)
 	  docontrast(N[b][k],contrast);
       }
 
       // NOISE
       if (noiser!=0.0)
-	for(k=0;k<nk;k++) 
+	for(k=0;k<nk;k++)
 	  donoise(N[b][k],noiser,noisesd);
+
+      if (noiseb!=0.0)
+	for(k=0;k<nk;k++)
+	  donoiseb(N[b][k],noiseb);
     }//trmode
   }//b
 }
@@ -1556,6 +1610,17 @@ void ICLayer::addparent(Layer *l)
   fprintf(stderr,"Error: ICLayer(%s) can not have parent layer\n",name);
   exit(1);
 }
+
+void ICLayer::save(FILE *fe)
+{
+  save_param(fe);
+}
+
+void ICLayer::load(FILE *fe)
+{
+  load_param(fe);
+}
+
 void ICLayer::forward() {
 
 }

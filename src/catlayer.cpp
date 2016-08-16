@@ -2,7 +2,7 @@
 #include <stdlib.h>     /* malloc, free, rand */
 #include <iostream>
 
-#include "Dense"
+#include "Eigen/Dense"
 #include "layer.h"
 #include "utils.h"
 
@@ -26,9 +26,9 @@ CatLayer::CatLayer(int batch,char *name):CLayer(batch,name)
   this->batch=batch;
   type=4;
   cat=0;
-  
-  N=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
-  De=(MatrixXf **)malloc(batch*sizeof(MatrixXf *));
+
+  N=(LMatrix **)malloc(batch*sizeof(LMatrix *));
+  De=(LMatrix **)malloc(batch*sizeof(LMatrix *));
 
   fprintf(stderr,"Creating CatLayer (%s)\n",name);
 }
@@ -36,10 +36,10 @@ CatLayer::CatLayer(int batch,char *name):CLayer(batch,name)
 void CatLayer::addchild(Layer *l)
 {
   int enc=0;
-  
+
   for(int i=0;i<lout;i++)
     if (Lout[i]==l) enc=1;
-  
+
   if (!enc) {
     if (l->type==1) {
       Lout[lout++]=l;
@@ -66,18 +66,18 @@ void CatLayer::addchild(Layer *l)
 void CatLayer::addparent(Layer *l)
 {
   int i,j;
-  
+
   int enc=0;
-  
+
   for(int i=0;i<lin;i++)
     if (Lin[i]==l) enc=1;
-  
+
   if (!enc) {
 
     if (l->type>1) {
       CLayer *c=(CLayer *)l;
       Lin[lin++]=l;
-    
+
       if (cat==0) {
 	outr=c->outr;
 	outc=c->outc;
@@ -99,27 +99,27 @@ void CatLayer::addparent(Layer *l)
       fprintf(stderr,"Error: (%s) cat layer only after cnn or maxpool\n",name);
       exit(-1);
     }
-    
-    nk=outz;  
-    for(i=0;i<batch;i++) 
-      N[i]=new MatrixXf[nk];
+
+    nk=outz;
+    for(i=0;i<batch;i++)
+      N[i]=new LMatrix[nk];
 
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	N[i][j].resize(outr,outc);
-    
+
     for(i=0;i<batch;i++) {
-      De[i]=new MatrixXf[nk];
+      De[i]=new LMatrix[nk];
     }
-  
+
     for(i=0;i<batch;i++)
       for(j=0;j<nk;j++)
 	De[i][j].resize(outr,outc);
-    
+
     fprintf(stderr,"Creating CatLayer (%s) output %d@%dx%d\n",name,outz,outr,outc);
   }
 }
-  
+
 
 
 
@@ -133,7 +133,7 @@ void CatLayer::forward()
   for(i=0;i<lin;i++) {
     if (i==0) ini=0;
     else ini=catvec[i-1];
-    
+
     for(j=ini;j<catvec[i];j++) {
 	c=(CLayer *)Lin[i];
 	for(b=0;b<batch;b++)
@@ -141,6 +141,17 @@ void CatLayer::forward()
       }
   }
 }
+
+void CatLayer::save(FILE *fe)
+{
+  save_param(fe);
+}
+
+void CatLayer::load(FILE *fe)
+{
+  load_param(fe);
+}
+
 
 void CatLayer::backward()
 {
@@ -167,7 +178,7 @@ void CatLayer::backward()
 void CatLayer::initialize(){ }
 void CatLayer::applygrads(){ }
 void CatLayer::reset()
-{ 
+{
   int i,j;
 
   for(i=0;i<batch;i++)

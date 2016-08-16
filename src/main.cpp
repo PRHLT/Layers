@@ -5,6 +5,7 @@
 #include "layer.h"
 #include "data.h"
 #include "net.h"
+#include "utils.h"
 
 #define MAX_ITEM 1000
 #define MAX_CHAR 1000
@@ -14,6 +15,7 @@ int main(int argc, char **argv) {
   int threads=4;
   char cad[MAX_CHAR];
   char cad2[MAX_CHAR];
+  char cad3[MAX_CHAR];
   char logname[MAX_CHAR];
 
   Eigen::initParallel();
@@ -28,6 +30,7 @@ int main(int argc, char **argv) {
   sprintf(cad,"cmc %s",argv[1]);
   system(cad);
 
+  lut_init();
 
   // Parser returns netparser.run
   FILE *fe;
@@ -209,22 +212,39 @@ int main(int argc, char **argv) {
       }
       
       ////////////// R //////////////
-      else if (!strcmp(ltype,"R")) {
-	sscanf(line,"layer %s R 2 prevlayer %s %s\n",name,cad,cad2);
-	sprintf(lname,"%s:%s",cad,cad2);
+      else if (!strcmp(ltype,"R")) { 
+	//layer f0 R 2 prevlayer N1 p1 local 1
+	int val;
+	sscanf(line,"layer %s R 2 prevlayer %s %s %s %d\n",name,cad,cad2,cad3,&val);
+	if (val==1) {
+	  sprintf(lname,"%s:%s",cad,cad2);
 
-	fprintf(stderr,"%s %s %s \n",name,cad,cad2);
+	  for(i=0;i<Lc;i++) {
+	    if (!strcmp(lname,LTable[i]->name)) break;
+	  }
+	  sprintf(lname,"%s:%s",innet,name);
 
-	for(i=0;i<Lc;i++) {
-	  if (!strcmp(lname,LTable[i]->name)) break;
+	  //FLayer::FLayer(lname,int lr,int lc,char *name):Layer(0,name)
+	  CLayer *cnn=(CLayer *)LTable[i];
+	  int lr=cnn->outr/2;
+	  int lc=cnn->outc/2;
+	  LTable[Lc]=new FLayer(LTable[i],lr,lc,lname);
+	  NTable[Nc]->addLayer(LTable[Lc]);
+	  Lc++;
 	}
-	sprintf(lname,"%s:%s",innet,name);
-	fprintf(stderr,"%s->%s found\n",LTable[i]->name,lname);
-	LTable[Lc]=new FLayer(LTable[i],batch,lname);
-	NTable[Nc]->addLayer(LTable[Lc]);
-	Lc++;
+	else {
+	  sprintf(lname,"%s:%s",cad,cad2);
+
+	  for(i=0;i<Lc;i++) {
+	    if (!strcmp(lname,LTable[i]->name)) break;
+	  }
+	  sprintf(lname,"%s:%s",innet,name);
+
+	  LTable[Lc]=new FLayer(LTable[i],batch,lname);
+	  NTable[Nc]->addLayer(LTable[Lc]);
+	  Lc++;
+	}
       }
-      
       ////////////// FO //////////////
       else if (!strcmp(ltype,"FO")) {
 	sscanf(line,"layer %s FO %d criterion %s autoencoder %d\n",name,&val,crit,&ae);
@@ -304,15 +324,44 @@ int main(int argc, char **argv) {
 
 	  for(i=0;i<Dc;i++)
 	    if (!strcmp(DTable[i]->name,cad2)) break;
+
 	  d->zscore(DTable[i]);
 	}
+      }
+      if (!strcmp(com,"center")) {
+	for(i=0;i<Dc;i++) 
+	  if (!strcmp(DTable[i]->name,cad)) break;
+	d=DTable[i];
+	if (par==0) {
+	  d->center();
+	  
+	}
+	else{
+	  sscanf(line,"command %s center %d %s",cad,&par,cad2);
+
+	  for(i=0;i<Dc;i++) 
+	    if (!strcmp(DTable[i]->name,cad)) break;
+	  d=DTable[i];
+
+	  for(i=0;i<Dc;i++)
+	    if (!strcmp(DTable[i]->name,cad2)) break;
+	  
+	  d->center(DTable[i]);
+	}
+      }
+      if (!strcmp(com,"div")) {
+	sscanf(line,"command %s %s 1 %f ",cad,com,&fv);
+	for(i=0;i<Dc;i++) 
+	  if (!strcmp(DTable[i]->name,cad)) break;
+	d=DTable[i];
+	
+	d->div(fv);
       }
       //command D1 yuv 0
       if (!strcmp(com,"yuv")) {
 	for(i=0;i<Dc;i++) 
 	  if (!strcmp(DTable[i]->name,cad)) break;
 	d=DTable[i];
-	fprintf(stderr,"%s YUV\n",DTable[i]->name);
 	d->YUV();
       }
       else if (!strcmp(com,"train")) {
@@ -330,9 +379,48 @@ int main(int argc, char **argv) {
 	  for(i=0;i<Nc;i++) 
 	    if (!strcmp(NTable[i]->name,cad)) break;
 	  
-	  //NTable[i]->gcheck();
+	  
 	  NTable[i]->train(par);
-	  NTable[i]->testOut();
+
+	}
+      }
+      else if (!strcmp(com,"save")) {
+	sscanf(line,"command %s save 1 %s",cad,cad2);
+	for(i=0;i<Nc;i++) 
+	  if (!strcmp(NTable[i]->name,cad)) break;
+	FILE *fe=fopen(cad2,"wt");
+	NTable[i]->save(fe);
+      }
+      else if (!strcmp(com,"load")) {
+	sscanf(line,"command %s load 1 %s",cad,cad2);
+	for(i=0;i<Nc;i++) 
+	  if (!strcmp(NTable[i]->name,cad)) break;
+	FILE *fe=fopen(cad2,"rt");
+	NTable[i]->load(fe);
+      }
+      else if (!strcmp(com,"testout")) {
+	sscanf(line,"command %s testout 1 %s",cad,cad2);
+	for(i=0;i<Nc;i++) 
+	  if (!strcmp(NTable[i]->name,cad)) break;
+	FILE *fe=fopen(cad2,"wt");
+	NTable[i]->testOut(fe);
+      }
+      // script over a particular layer
+      else {
+	sscanf(line,"command %s %s %s ",cad,cad2,com);
+	if (!strcmp(com,"printkernels")) {
+	  sscanf(line,"command %s %s printkernels 1 %s",cad,cad2,cad3);
+	  sprintf(lname,"%s:%s",cad,cad2);
+
+	  Layer *l;
+	  for(i=0;i<Lc;i++)
+	    if (!strcmp(LTable[i]->name,lname)) break;
+	  l=LTable[i];
+	  
+	  fprintf(stderr,"printkernels %s\n",l->name);
+
+	  FILE *fe=fopen(cad3,"wt");
+	  l->printkernels(fe);
 	}
       }
     }
@@ -341,7 +429,16 @@ int main(int argc, char **argv) {
     ///////////////////////////
     else if (!strcmp(cad,"amendment")) {
       sscanf(line,"amendment %s %s ",cad,cad2);
-      if (!strcmp(cad2,"*")) {
+      if (!strcmp(cad2,"balance")) {
+	Data *d;
+	int par;
+	sscanf(line,"amendment %s %s %d ",cad,cad2,&par);
+	for(i=0;i<Dc;i++) 
+	  if (!strcmp(DTable[i]->name,cad)) break;
+	d=DTable[i];
+	d->setbalance(par);	
+      }
+      else if (!strcmp(cad2,"*")) {
 	sscanf(line,"amendment %s * %s %f\n",cad,arg,&fv);
 	Net *net;
 	for(i=0;i<Nc;i++)
@@ -349,6 +446,7 @@ int main(int argc, char **argv) {
 	net=NTable[i];
 
 	if (!strcmp(arg,"l2")) net->setl2(fv);
+	else if (!strcmp(arg,"l1")) net->setl1(fv);
 	else if (!strcmp(arg,"maxn")) net->setmaxn(fv);
 	else if (!strcmp(arg,"mu")) net->setmu(fv);
 	else if (!strcmp(arg,"mmu")) net->setmmu(fv);
@@ -356,7 +454,9 @@ int main(int argc, char **argv) {
 	else if (!strcmp(arg,"bn")) net->setbn(fv);
 	else if (!strcmp(arg,"act")) net->setact(fv);
 	else if (!strcmp(arg,"noiser")) net->setnoiser(fv);
+	else if (!strcmp(arg,"noiseb")) net->setnoiseb(fv);
 	else if (!strcmp(arg,"noisesd")) net->setnoisesd(fv);
+	else if (!strcmp(arg,"lambda")) net->setlambda(fv);
 	else if (!strcmp(arg,"flip")) net->setflip(fv);
       }
       else {
@@ -377,9 +477,11 @@ int main(int argc, char **argv) {
 	else if (!strcmp(arg,"drop")) l->setdrop(fv);
 	else if (!strcmp(arg,"bn")) l->setbn(fv);
 	else if (!strcmp(arg,"noiser")) l->setnoiser(fv);
+	else if (!strcmp(arg,"noiseb")) l->setnoiseb(fv);
 	else if (!strcmp(arg,"noisesd")) l->setnoisesd(fv);
 	else if (!strcmp(arg,"act")) l->setact(fv);
 	else if (!strcmp(arg,"bn")) l->setbn(fv);
+	else if (!strcmp(arg,"lambda")) l->setlambda(fv);
 	else if (!strcmp(arg,"flip")) l->setflip(fv);
 
       }

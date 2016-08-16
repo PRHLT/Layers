@@ -9,7 +9,6 @@
 %}
 %union { /********************************************************************/
   char*   ident;                      /* for the "identifier" terminal       */
-  int     cent;                       /* for the "integer constant" terminal */
   float   creal;                      /* for the "real constant" terminal    */
   int     aux;
 } /***************************************************************************/
@@ -22,20 +21,19 @@
  nz_  nr_  nc_  cr_  cc_  numnodes_ 
  nk_  kr_  kc_  rpad_  cpad_ stride_
  sizer_  sizec_  
- mu_  mmu_  drop_  l2_  l1_  maxn_  act_  noiser_  noisesd_  
- shift_  flip_  brightness_  contrast_  bn_
+ mu_  mmu_  drop_  l2_  l1_  maxn_  act_  noiser_  noisesd_  lambda_
+ shift_  flip_  brightness_  contrast_  bn_  balance_ noiseb_
 /*****************************************************************  Keywords */
  const_  data_  network_  script_  train_  save_  zscore_  yuv_  printkernels_
- local_
+ local_  load_  testout_  center_  div_  test_
 /****************************************************************  operators */
  BCB_  ECB_  BSB_  ESB_  BRB_  ERB_  PER_  COM_  EQ_  RAR_
 /**************************************************** tokens with attributes */
 %token<ident> id_  nfile_
-%token<cent>  cte_
-%token<creal> ctr_
+%token<creal> cte_
 /********************************************** nonterminals with attributes */
 %type<aux>   filetype  f_param  name_layer  param_ctr  param_cte  rest_train
-%type<ident> rest_zscore  parameter
+%type<ident> other_data  parameter
 /*****************************************************************************/
 %%
 /*****************************************************************************/
@@ -64,11 +62,11 @@ list_constants
 def_const
        : batch_   EQ_  cte_  
 
-       { insert_gconstants(BATCH, $3, ""); }
+       { insert_gconstants(BATCH, (int)$3, ""); }
 
        | threads_ EQ_  cte_  
 
-       { insert_gconstants(THREADS, $3, ""); }
+       { insert_gconstants(THREADS, (int)$3, ""); }
 
        | log_  EQ_  nfile_
 
@@ -87,7 +85,7 @@ definition
 
        | def_network
 
-       { get_network(); end_network(); }
+       { get_network(); /* end_network(); */ }
 
        | def_script
        ; 
@@ -278,23 +276,23 @@ ci_lparam
 ci_param           
        : nz_  EQ_  cte_ 
 
-       { insert_param_layer(1, $3); }
+       { insert_param_layer(1, (int)$3); }
  
        | nr_  EQ_  cte_  
 
-       { insert_param_layer(2, $3); }
+       { insert_param_layer(2, (int)$3); }
 
        | nc_  EQ_  cte_
 
-       { insert_param_layer(3, $3); }
+       { insert_param_layer(3, (int)$3); }
 
        | cr_  EQ_  cte_
 
-       { insert_param_layer(4, $3); }
+       { insert_param_layer(4, (int)$3); }
 
        | cc_  EQ_  cte_
 
-       { insert_param_layer(5, $3); }
+       { insert_param_layer(5, (int)$3); }
        ;
 /*****************************************************************************/
 f_param
@@ -316,7 +314,7 @@ f_param
 
        { 
          $$ = TRUE;
-	 insert_param_layer(1, $3);
+	 insert_param_layer(1, (int)$3);
        }
        ;
 /*****************************************************************************/
@@ -328,27 +326,27 @@ c_lparam
 c_param         
        : nk_  EQ_  cte_  
 
-       { insert_param_layer(1, $3); }
+       { insert_param_layer(1, (int)$3); }
 
        | kr_  EQ_  cte_  
 
-       { insert_param_layer(2, $3); }
+       { insert_param_layer(2, (int)$3); }
 
        | kc_  EQ_  cte_
 
-       { insert_param_layer(3, $3); }
+       { insert_param_layer(3, (int)$3); }
 
        | rpad_  EQ_  cte_  
 
-       { insert_param_layer(4, $3); }
+       { insert_param_layer(4, (int)$3); }
 
        | cpad_  EQ_  cte_ 
 
-       { insert_param_layer(5, $3); }
+       { insert_param_layer(5, (int)$3); }
 
        | stride_  EQ_  cte_
 
-       { insert_param_layer(6, $3); }
+       { insert_param_layer(6, (int)$3); }
        ;
 /*****************************************************************************/
 mp_lparam          
@@ -359,11 +357,11 @@ mp_lparam
 mp_param           
        : sizer_  EQ_  cte_  
 
-       { insert_param_layer(1, $3); }
+       { insert_param_layer(1, (int)$3); }
 
        | sizec_  EQ_  cte_ 
 
-       { insert_param_layer(2, $3); }
+       { insert_param_layer(2, (int)$3); }
        ;
 /*****************************************************************************/
 edge
@@ -381,6 +379,7 @@ name_layer
 
        { $$ = search_states("", $1);  }
        ;
+
 /*****************************************************************************/
 def_script
        : script_  BCB_  list_actions  ECB_
@@ -413,47 +412,81 @@ amendment
        | id_  PER_  parameter
 
        { int k = search_network ($1);
-	 if (k < 0)
-	   yyerror("Network name does not exist");
-	 else get_amendment(NETWORK, k, $3);
+	 if (k >= 0)  get_amendment(NETWORK, k, $3);
+	 else yyerror("Network name does not exist");
+       }
+
+       | id_  PER_  balance_  EQ_  cte_
+
+       { int k = search_data ($1);
+	 if (k >= 0)  get_amendment_data(k, (int)$5);
+	 else yyerror("Data or network name does not exist");
        }
        ;
 /*****************************************************************************/
 command
-       : id_  PER_  id_  PER_  printkernels_  BRB_  ERB_
+       : id_  PER_  id_  PER_  printkernels_  BRB_  nfile_  ERB_
 
        { int k2, k1 =  search_network ($1);
 	 if (k1 >= 0) {
            k2 = search_layer(k1, $3);
 	   if (k2 >= 0) 
-	     get_printkernels(k1, k2);
+	     get_printkernels(k1, k2, $7);
 	   else 
 	     yyerror("The name of the layer does not exist on this network");
 	 }
 	 else yyerror("Network name does not exist");
        }
 
-
        | train_  BRB_  cte_  COM_  cte_  rest_train  ERB_
 
-       { get_train($3, $5, $6); }
+       { get_train((int)$3, (int)$5, $6); }
 
        | id_  PER_  train_  BRB_  cte_  ERB_
 
        { int k = search_network ($1);
-	 if (k >= 0)  get_net_train(k, $5);
+	 if (k >= 0)  get_net_train(k, (int)$5);
 	 else yyerror("Network name does not exist");
        }
 
-       | id_  PER_  save_  BRB_  ERB_
+       | id_  PER_  test_  BRB_  other_data  ERB_
+
+       { int k2, k1 = search_network ($1);
+	 if (k1 >= 0)  
+	   if (strlen($5) > 0) {
+	     k2 = search_data ($5);
+	     if (k2 >= 0) get_net_test(k1, k2);
+	     else yyerror("Data name does not exist");
+	   }
+	   else  get_net_test(k1,-1);
+	 else yyerror("Network name does not exist");
+       }
+
+       | id_  PER_  save_  BRB_  nfile_  ERB_
 
        { int k = search_network ($1);
 	 if (k < 0)
 	   yyerror("Network name does not exist");
-	 else get_save(k);
+	 else get_save(k, $5);
        }
 
-       | id_  PER_  zscore_  BRB_  rest_zscore  ERB_
+       | id_  PER_  load_  BRB_  nfile_  ERB_
+
+       { int k = search_network ($1);
+	 if (k < 0)
+	   yyerror("Network name does not exist");
+	 else get_load(k, $5);
+       }
+
+       | id_  PER_  testout_  BRB_  nfile_  ERB_
+
+       { int k = search_network ($1);
+	 if (k < 0)
+	   yyerror("Network name does not exist");
+	 else get_testout(k, $5);
+       }
+
+       | id_  PER_  zscore_  BRB_  other_data  ERB_
 
        { int k2, k1 = search_data ($1);
 	 if (k1 >= 0) 
@@ -466,6 +499,19 @@ command
 	 else yyerror("Data name does not exist");
        }
 
+       | id_  PER_  center_  BRB_  other_data  ERB_
+
+       { int k2, k1 = search_data ($1);
+	 if (k1 >= 0) 
+	   if (strlen($5) > 0) {
+	     k2 = search_data ($5);
+	     if (k2 >= 0) get_center(k1,k2);
+	     else yyerror("Data name does not exist");
+	   }
+	   else  get_center(k1,-1);
+	 else yyerror("Data name does not exist");
+       }
+
        | id_  PER_  yuv_  BRB_  ERB_
 
        { int k = search_data ($1);
@@ -473,6 +519,12 @@ command
 	 else yyerror("Data name does not exist");
        }
 
+       | id_  PER_  div_  BRB_  cte_  ERB_
+
+       { int k = search_data ($1);
+	 if (k >= 0) get_div(k, $5);
+	 else yyerror("Data name does not exist");
+       }
        ;
 /*****************************************************************************/
 rest_train
@@ -486,19 +538,19 @@ rest_train
 
        ;
 /*****************************************************************************/
-rest_zscore   
+other_data
        :      { $$ = ""; }  /* instruccion vacia */      
        | id_  { $$ = $1; }
        ;
 /*****************************************************************************/
 parameter 
-       : param_ctr  EQ_  ctr_
+       : param_ctr  EQ_  cte_
 
        { $$ = get_amend_param_ctr($1, $3); }
 
-       |  param_cte  EQ_  cte_
+       | param_cte  EQ_  cte_
 
-       { $$ = get_amend_param_cte($1, $3); }
+       { $$ = get_amend_param_cte($1, (int)$3); }
        ;
 /*****************************************************************************/
 param_ctr
@@ -512,6 +564,8 @@ param_ctr
        | noisesd_       { $$ = noisesd;    }  /*  0       */ 
        | brightness_    { $$ = brightness; }
        | contrast_      { $$ = contrast;   }
+       | lambda_        { $$ = lambda;     }
+       | noiseb_        { $$ = noiseb;     }
        ;
 /*****************************************************************************/
 param_cte
@@ -525,7 +579,9 @@ param_cte
 /*****************************************************************************/
 int main (int argc, char **argv) 
 /* Manages the command line and invokes the syntactic-semantic analyzer.     */
-{ int i, n = 0;
+{ int i, n = 0; char line[140];
+
+  sprintf(line,"rm netparser.run 2>/dev/null"); system(line);
   for (i=0; i<argc; ++i) 
     if (strcmp(argv[i], "-v")==0) { verbosity = TRUE; n++; }
   --argc; n++;

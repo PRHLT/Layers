@@ -79,35 +79,42 @@
      act_ = 297,
      noiser_ = 298,
      noisesd_ = 299,
-     shift_ = 300,
-     flip_ = 301,
-     brightness_ = 302,
-     contrast_ = 303,
-     bn_ = 304,
-     const_ = 305,
-     data_ = 306,
-     network_ = 307,
-     script_ = 308,
-     train_ = 309,
-     save_ = 310,
-     zscore_ = 311,
-     yuv_ = 312,
-     printkernels_ = 313,
-     local_ = 314,
-     BCB_ = 315,
-     ECB_ = 316,
-     BSB_ = 317,
-     ESB_ = 318,
-     BRB_ = 319,
-     ERB_ = 320,
-     PER_ = 321,
-     COM_ = 322,
-     EQ_ = 323,
-     RAR_ = 324,
-     id_ = 325,
-     nfile_ = 326,
-     cte_ = 327,
-     ctr_ = 328
+     lambda_ = 300,
+     shift_ = 301,
+     flip_ = 302,
+     brightness_ = 303,
+     contrast_ = 304,
+     bn_ = 305,
+     balance_ = 306,
+     noiseb_ = 307,
+     const_ = 308,
+     data_ = 309,
+     network_ = 310,
+     script_ = 311,
+     train_ = 312,
+     save_ = 313,
+     zscore_ = 314,
+     yuv_ = 315,
+     printkernels_ = 316,
+     local_ = 317,
+     load_ = 318,
+     testout_ = 319,
+     center_ = 320,
+     div_ = 321,
+     test_ = 322,
+     BCB_ = 323,
+     ECB_ = 324,
+     BSB_ = 325,
+     ESB_ = 326,
+     BRB_ = 327,
+     ERB_ = 328,
+     PER_ = 329,
+     COM_ = 330,
+     EQ_ = 331,
+     RAR_ = 332,
+     id_ = 333,
+     nfile_ = 334,
+     cte_ = 335
    };
 #endif
 
@@ -121,14 +128,13 @@ typedef union YYSTYPE
 #line 10 "asin.y"
  /********************************************************************/
   char*   ident;                      /* for the "identifier" terminal       */
-  int     cent;                       /* for the "integer constant" terminal */
   float   creal;                      /* for the "real constant" terminal    */
   int     aux;
 
 
 
 /* Line 2068 of yacc.c  */
-#line 132 "asin.h"
+#line 138 "asin.h"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */

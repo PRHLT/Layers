@@ -35,6 +35,7 @@ typedef struct tdlay  /***************************** Elements of layer table */
   char *name;
   int   type;  
   int   refnet;
+  int   ninit;
   int   root;
   int   visit;
   int   visit2;
@@ -63,7 +64,7 @@ TDNET  tdn [MaxTdN];
 TDNET  tdnini = {"",-1,-1,-1,-1,-1,-1};
 int    ptdn = 0;
 TDLAY  tdl [MaxTdL]; 
-TDLAY  tdlini = {"",-1,-1,-1,FALSE,FALSE,-1,-1,-1,-1,-1,-1,0,0,NULL,NULL};
+TDLAY  tdlini = {"",-1,-1,-1,-1,FALSE,FALSE,-1,-1,-1,-1,-1,-1,0,0,NULL,NULL};
 int    ptdl = 0;
 TDDATA tdd [MaxTdD];
 TDDATA tddini = {"",-1,"",-1};
@@ -95,46 +96,36 @@ void emit (char *s)
 }
 /*****************************************************************************/
 void dump_file()
-{ FILE *fd; char *t; int i; char line[140];
+{ FILE *fd; char *t; int i; 
 
   if(numErrores == 0) {
     fd = fopen ("netparser.run", "w");
     for (i=0; i < pmem; i++) fprintf(fd,"%s\n",mem[i]);
     close(fd);
   }
-  else {
-    sprintf(line,"rm netparser.run 2>/dev/null");
-    system(line);
-  }
 }
 /*****************************************************************************/
 void begin_experiment()
-{ int i;
+{ int i; 
 
   tdn[ptdn] = tdnini;  tdl[ptdl] = tdlini;  tdd[ptdd] = tddini;
 }
 /*****************************************************************************/
-void end_experiment() 
-{ char line[140]; 
+ void end_experiment()
+{ char line[140];
 
   sprintf(line,"END"); emit(line);
 }
 /*****************************************************************************/
-void end_network() 
-{ char line[140]; 
-
-  sprintf(line,"END_Network"); emit(line);
-}
-/*****************************************************************************/
-void insert_gconstants (int ref, int cte1, char *filename)
+void insert_gconstants (int ref, int cte, char *filename)
 {
   switch (ref) {
   case BATCH: { 
-    gconst.batch = cte1;
+    gconst.batch = cte;
     break;
   }
   case THREADS: { 
-    gconst.threads = cte1;
+    gconst.threads = cte;
     break;
   }
   case LOG: { 
@@ -149,7 +140,7 @@ void inser_name_data (char *named)
   if (ptdd == MaxTdD)
     yyerror("Table of data is completely full");
   else {
-    tdd[ptdd].name   = named; tdd[ptdd].level    = leveldata;
+    tdd[ptdd].name = named; tdd[ptdd].level = leveldata;
     ptdd++; tdd[ptdd] = tddini; 
  }
 }
@@ -538,37 +529,51 @@ void get_net_links(int n, int l)
 }
 /*****************************************************************************/
 void get_network()
-{ char line[140]; int i, k, j = ptdn-1, nsti = 0, ok = FALSE;
+{ char line[140]; int i, k, j = ptdn-1, nsti = 0, ok = TRUE;
   /*   checking the network: initial, internal and final layers   */
   for (i = tdn[j].belem; i <= tdn[j].eelem; i++) {
     switch (tdl[i].type) {
     case FO: {
-      if ((tdl[i].nsucc == 0) && (tdl[i].nprev > 0)) ok = TRUE;
-      else yyerror("Error in the accessibility of final layer");
+      if (!((tdl[i].nsucc >= 0) && (tdl[i].nprev > 0))) {
+	ok = FALSE;
+	yyerror("Error in the accessibility of final layer");
+      }
       break;
     }
     case FI: case CI: {
       if ((tdl[i].nsucc > 0) && (tdl[i].nprev == 0))  {
-	tdn[j].start = i;  nsti++;  ok= TRUE;
+	if (nsti == 0) {
+	  tdn[j].start = i;  nsti++;
+	}
+	else {
+	  k = tdn[j].start;
+	  while (tdl[k].ninit > 0) k = tdl[k].ninit;
+	  tdl[k].ninit = i; nsti++;
+	}
       }
-      else yyerror("Error in the accessibility of initial layer");
+      else {
+	ok = FALSE;
+	yyerror("Error in the accessibility of initial layer");
+      }
       break;
     }
     case C: case MP: {
-      if ((tdl[i].nsucc > 0) && (tdl[i].nprev == 1))  ok = TRUE;
-      else yyerror("Error in the accessibility of internal layer1");
+      if (!((tdl[i].nsucc > 0) && (tdl[i].nprev == 1))) {
+	ok = FALSE;
+	yyerror("Error in the accessibility of internal layer1");
+      }
       break;
     }
     case CA: case F: case R: {
-      if ((tdl[i].nsucc > 0) && (tdl[i].nprev > 0))  ok = TRUE;
-      else yyerror("Error in the accessibility of internal layer2");
+      if (!((tdl[i].nsucc > 0) && (tdl[i].nprev > 0))) {
+	ok = FALSE;
+	yyerror("Error in the accessibility of internal layer2");
+      }
       break;
     }
     }
   }
-  if (nsti > 1)
-    yyerror("Error: there can be only an initial layer");
-  else if (nsti == 0)
+  if (nsti == 0)
     yyerror("Error: a network must have an initial layer");
   else if (ok == TRUE) {
     sprintf(line,"Network %s",tdn[j].name); emit(line);
@@ -579,7 +584,14 @@ void get_network()
       yyerror("Error, possible loop in the network");
     get_net_layers(j);
     /*   getting links of network   */
-    get_net_links(j, tdn[j].start);
+    k = tdn[j].start;
+    get_net_links(j, k);
+    while (tdl[k].ninit > 0) {
+      k = tdl[k].ninit;
+      get_net_links(j, k);
+    }
+    /* end network */ 
+    sprintf(line,"END_Network"); emit(line);
   }
 }
 /*****************************************************************************/
@@ -590,6 +602,12 @@ void get_amendment(int type, int ref, char *aux)
     sprintf(line,"amendment %s %s %s", tdn[tdl[ref].refnet].name,
 	    tdl[ref].name, aux);
   else sprintf(line,"amendment %s * %s", tdn[ref].name, aux);
+  emit(line);
+}
+/*****************************************************************************/
+void get_amendment_data(int ref, int aux)
+{ char line[140];
+  sprintf(line,"amendment %s balance %d", tdd[ref].name, aux);
   emit(line);
 }
 /*****************************************************************************/
@@ -637,6 +655,14 @@ char *get_amend_param_ctr(int param, float value)
     sprintf(line,"contrast %f",value);
     break;
   }
+  case lambda: { 
+    sprintf(line,"lambda %f",value);
+    break;
+  }
+  case noiseb: { 
+    sprintf(line,"noiseb %f",value);
+    break;
+  }
   }
   d = malloc (strlen (line) + 1);
   strcpy (d,line);
@@ -663,16 +689,21 @@ char *get_amend_param_cte(int param, int value)
     sprintf(line,"flip %d",value);
     break;
   }
+  case balance: { 
+    sprintf(line,"balance %d",value);
+    break;
+  }
   }
   d = malloc (strlen (line) + 1); 
   strcpy (d,line);
   return d;
 }
 /*****************************************************************************/
-void get_net_train (int refn, int par) 
-{ char line[140];
- 
-  sprintf(line,"command %s train 1 nepoch %d",tdn[refn].name, par);
+void get_printkernels (int refn, int refl, char *aux)
+{ char line[140]; 
+
+  sprintf(line,"command %s %s printkernels 1 %s", tdn[refn].name, 
+	  tdl[refl].name, aux);
   emit(line);
 }
 /*****************************************************************************/
@@ -690,17 +721,40 @@ void get_train (int par1, int par2, int ref)
   emit(line);
 }
 /*****************************************************************************/
-void get_printkernels (int refn, int refl)
-{ char line[140]; 
-
-  sprintf(line,"command %s %s printkernels 0",tdn[refn].name,tdl[refl].name);
+void get_net_train (int refn, int par) 
+{ char line[140];
+ 
+  sprintf(line,"command %s train 1 nepoch %d",tdn[refn].name, par);
   emit(line);
 }
 /*****************************************************************************/
-void get_save (int ref)
+void get_net_test (int ref1, int ref2) 
+{ char line[140], line2[140]; 
+
+  if (ref2 < 0) sprintf(line2,"0");
+  else  sprintf(line2,"1 %s",tdd[ref2].name);
+  sprintf(line,"command %s test %s", tdd[ref1].name, line2);
+  emit(line);
+}
+/*****************************************************************************/
+void get_save (int ref, char *aux)
 { char line[140]; 
 
-  sprintf(line,"command %s save 0",tdn[ref].name);
+  sprintf(line,"command %s save 1 %s", tdn[ref].name, aux);
+  emit(line);
+}
+/*****************************************************************************/
+void get_load (int ref, char *aux)
+{ char line[140]; 
+
+  sprintf(line,"command %s load 1 %s", tdn[ref].name, aux);
+  emit(line);
+}
+/*****************************************************************************/
+void get_testout (int ref, char *aux)
+{ char line[140]; 
+
+  sprintf(line,"command %s testout 1 %s", tdn[ref].name, aux);
   emit(line);
 }
 /*****************************************************************************/
@@ -713,10 +767,26 @@ void get_zscore (int ref1, int ref2)
   emit(line);
 }
 /*****************************************************************************/
+void get_center (int ref1, int ref2)
+{ char line[140], line2[140]; 
+
+  if (ref2 < 0) sprintf(line2,"0");
+  else  sprintf(line2,"1 %s",tdd[ref2].name);
+  sprintf(line,"command %s center %s", tdd[ref1].name, line2);
+  emit(line);
+}
+/*****************************************************************************/
 void get_yuv (int ref1)
 { char line[140]; 
 
   sprintf(line,"command %s yuv 0",tdd[ref1].name);
+  emit(line);
+}
+/*****************************************************************************/
+void get_div (int ref1, float aux)
+{ char line[140]; 
+
+  sprintf(line,"command %s div 1 %f",tdd[ref1].name, aux);
   emit(line);
 }
 /*****************************************************************************/
